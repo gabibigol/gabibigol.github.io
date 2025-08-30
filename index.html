@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pós-Venda">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="manifest" href="manifest.json">
+  <title>📊 Pós-Venda - Auto Center</title>
+
+  <!-- Libs -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body class="bg-gray-50">
+  <div id="root" class="pb-20"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { jsPDF } = window.jspdf;
+
+    function PosVendaApp() {
+      const [clientes, setClientes] = useState([]);
+      const [form, setForm] = useState({ nome: "", celular: "", servico: "", dataServico: "", horaServico: "", observacoes: "", id: null });
+      const [view, setView] = useState("dashboard");
+      const [toast, setToast] = useState(null);
+
+      useEffect(() => {
+        const data = localStorage.getItem("clientes");
+        if (data) setClientes(JSON.parse(data));
+      }, []);
+      useEffect(() => { localStorage.setItem("clientes", JSON.stringify(clientes)); }, [clientes]);
+
+      const showToast = (msg, type="info") => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      const maskPhone = (value) => {
+        value = value.replace(/\D/g, "");
+        if (value.length > 11) value = value.slice(0, 11);
+        if (value.length <= 10) return value.replace(/(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3");
+        return value.replace(/(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3");
+      };
+
+      const handleChange = (e) => {
+        let { name, value } = e.target;
+        if (name === "celular") value = maskPhone(value);
+        setForm({ ...form, [name]: value });
+      };
+
+      const adicionarCliente = () => {
+        const celularNormalizado = form.celular.replace(/\D/g, "");
+        if (!form.nome || !celularNormalizado || !form.servico || !form.dataServico) {
+          showToast("⚠️ Preencha todos os campos", "error");
+          return;
+        }
+        const dataCompleta = `${form.dataServico} ${form.horaServico}`;
+        if (form.id) {
+          setClientes(clientes.map(c => c.id === form.id ? { ...form, celular: form.celular, dataServico: dataCompleta } : c));
+          showToast("✏️ Cliente atualizado!", "success");
+        } else {
+          setClientes([...clientes, { ...form, celular: form.celular, dataServico: dataCompleta, status: "Em andamento", id: Date.now() }]);
+          showToast("✅ Cliente cadastrado!", "success");
+        }
+        setForm({ nome: "", celular: "", servico: "", dataServico: "", horaServico: "", observacoes: "", id: null });
+        setView("dashboard");
+      };
+
+      const concluirCliente = (id) => setClientes(clientes.map(c => c.id === id ? { ...c, status: "Finalizado" } : c));
+      const excluirCliente = (id) => setClientes(clientes.filter(c => c.id !== id));
+
+      const tempoRestante = (data) => {
+        const hoje = new Date();
+        const dt = new Date(data);
+        if (isNaN(dt)) return "";
+        const diff = Math.ceil((dt - hoje) / (1000*60*60*24));
+        if (diff > 0) return `⏳ Faltam ${diff} dias`;
+        if (diff === 0) return "⚡ É hoje!";
+        return `❌ Atrasado há ${Math.abs(diff)} dias`;
+      };
+
+      return (
+        <div className="p-4 max-w-lg mx-auto">
+          <h1 className="text-xl font-bold mb-4 text-center">📊 Pós-Venda Auto Center</h1>
+          {toast && <div className={`fixed top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded shadow text-white z-50 ${
+              toast.type==="success"?"bg-green-600":toast.type==="error"?"bg-red-600":"bg-gray-600"}`}>{toast.msg}</div>}
+          
+          {view === "dashboard" && (
+            <div className="grid gap-2 mt-4">
+              {clientes.map(c => (
+                <div key={c.id} className="bg-white p-3 rounded shadow">
+                  <h3 className="font-bold">{c.nome}</h3>
+                  <p>📱 {c.celular}</p>
+                  <p>🛠 {c.servico}</p>
+                  <p>📅 {c.dataServico}</p>
+                  <p>{tempoRestante(c.dataServico)}</p>
+                  <span className={`px-2 py-1 text-xs rounded ${
+                    c.status==="Finalizado"?"bg-green-200 text-green-800":
+                    (new Date(c.dataServico)<new Date()?"bg-red-200 text-red-800":"bg-yellow-200 text-yellow-800")
+                  }`}>
+                    {c.status}
+                  </span>
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    <button onClick={()=>concluirCliente(c.id)} className="px-2 py-1 bg-green-500 text-white rounded">✅</button>
+                    <button onClick={()=>excluirCliente(c.id)} className="px-2 py-1 bg-red-500 text-white rounded">🗑️</button>
+                    <a href={`https://wa.me/55${c.celular.replace(/\D/g,"")}?text=Olá%20${c.nome},%20seu%20serviço%20de%20${c.servico}%20foi%20registrado.%20Gostaríamos%20do%20seu%20feedback:%20https://g.page/r/CODIGO_GOOGLE`} target="_blank" className="px-2 py-1 bg-green-600 text-white rounded">📱 WhatsApp</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {view === "cadastro" && (
+            <div className="bg-white p-3 rounded shadow">
+              <h2 className="text-lg font-bold">{form.id?"Editar Cliente":"Cadastrar Cliente"}</h2>
+              <input name="nome" placeholder="Nome" value={form.nome} onChange={handleChange} className="border w-full px-2 py-1 mt-2 rounded"/>
+              <input name="celular" placeholder="Celular" value={form.celular} onChange={handleChange} className="border w-full px-2 py-1 mt-2 rounded"/>
+              <input name="servico" placeholder="Serviço" value={form.servico} onChange={handleChange} className="border w-full px-2 py-1 mt-2 rounded"/>
+              <input type="date" name="dataServico" value={form.dataServico} onChange={handleChange} className="border w-full px-2 py-1 mt-2 rounded"/>
+              <input type="time" name="horaServico" value={form.horaServico} onChange={handleChange} className="border w-full px-2 py-1 mt-2 rounded"/>
+              <textarea name="observacoes" placeholder="Observações" value={form.observacoes} onChange={handleChange} className="border w-full px-2 py-1 mt-2 rounded"/>
+              <button onClick={adicionarCliente} className="mt-3 w-full px-3 py-2 bg-blue-500 text-white rounded">{form.id?"Salvar Alterações":"Salvar"}</button>
+            </div>
+          )}
+
+          {/* Bottom Navigation estilo iPhone */}
+          <div className="fixed bottom-0 left-0 w-full bg-white border-t flex justify-around p-2">
+            <button onClick={()=>setView("dashboard")} className="flex-1 py-2">🏠</button>
+            <button onClick={()=>setView("cadastro")} className="flex-1 py-2">➕</button>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<PosVendaApp />);
+  </script>
+
+  <!-- Registrar PWA -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("service-worker.js").then(() => {
+        console.log("✅ Service Worker registrado");
+      });
+    }
+  </script>
+</body>
+</html>
